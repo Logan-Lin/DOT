@@ -1,0 +1,9 @@
+pandas
+tables
+numpy
+matplotlib
+h5py
+scikit-learn
+tqdm
+einops
+xgboost

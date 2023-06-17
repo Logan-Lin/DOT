@@ -19,7 +19,7 @@ In the PiT travel time estimation stage, we estimate the travel time based on th
 
 ## Training and evaluation pipeline
 
-The `main.py` regulates the training and testing process of DOT. Paremeters are given through command line arguments. For example, to train the model on `chengdu` dataset with $20\times20$-size grids for 20 epoches, you can run the following bash command:
+The `main.py` regulates the training and testing process of DOT. Parameters are given through command line arguments. For example, to train the model on `chengdu` dataset with $20\times20$-size grids for 20 epoches, you can run the following bash command:
 
 ```bash
 python main.py --cuda 0 -n chengdu -s 20 --traindiff -e 50
@@ -29,7 +29,7 @@ Ungiven hyper-parameters are set to default values.
 
 ## Dataset and pre-process
 
-The sample datasets are in the `/sample` directory. They share the same format as the full dataset, yet have a very small footprint, suitable for local debugging. You can also insert your own datasets following the same format.
+The sample datasets are in the `/sample` directory. They share the same format as the full dataset, yet have a very small footprint, suitable for local debugging. You can also insert your own datasets following the same format. Notice that each dataset is a set of `pandas DataFrames` and stored in one `HDF5` file.
 
 The `dataset.py` controls how the datasets are loaded and pre-processed. To pre-process a certain dataset, please regard the `dataset.py` as the main entry of Python. For instance, to pre-process the `chengdu` dataset into Pixelated Trajectory format with $20\times20$-size grids, you can run the following bash command:
 

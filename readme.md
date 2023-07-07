@@ -4,7 +4,7 @@ Codes and sample datasets for the model "Diffusion-based Origin-destination Trav
 
 > Yan Lin, Huaiyu Wan, Jilin Hu, Shengnan Guo, Bin Yang, Youfang Lin, Christian S. Jensen. Origin-Destination Travel Time Oracle for Map-based Services. The 50th ACM SIGMOD Conference on Management of Data, 2024.
 
-Camera ready version of the paper will soon be released.
+Pre-print: https://arxiv.org/abs/2307.03048
 
 ## Model overview
 

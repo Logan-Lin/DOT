@@ -12,10 +12,11 @@ from model.predictor import *
 
 parser = ArgumentParser()
 
-parser.add_argument('--cuda', help='the index of the cuda device', type=int, default=0)
+parser.add_argument('--device', help='the name of the device', type=str, default='cpu')
 
 # Dataset arguments
-parser.add_argument('-n', '--name', help='the name of the dataset', type=str, required=True)
+parser.add_argument('--trajpath', help='the path to the set of trajectories', type=str, required=True)
+parser.add_argument('--metadir', help='the directory to cache preprocessed meta data', type=str, required=True)
 parser.add_argument('-s', '--split', help='the number of x and y split', type=int, default=20)
 parser.add_argument('--flat', action='store_true')
 
@@ -53,23 +54,15 @@ parser.add_argument('--rmst', action='store_false')
 
 args = parser.parse_args()
 
-os.environ['CUDA_VISIBLE_DEVICES'] = str(args.cuda)
-if torch.cuda.is_available():
-    device = 'cuda:0'
-    small = False
-else:
-    device = 'cpu'
-    small = True
-
 # Loading dataset
-dataset = TrajectoryDataset(args.name, split=args.split, partial=args.partial, small=small, flat=args.flat)
+dataset = TrajectoryDataset(args.trajpath, args.metadir, split=args.split, partial=args.partial, flat=args.flat)
 dataset.load_images()
 
 # Create models.
 denoiser = Unet(dim=args.split, channels=dataset.num_channel, init_dim=4, dim_mults=(1, 2, 4), condition=args.condition)
 diffusion = DiffusionProcess(T=args.timestep, schedule_name='linear')
 diffusion_trainer = DiffusionTrainer(diffusion=diffusion, denoiser=denoiser, dataset=dataset, lr=1e-3,
-                                     batch_size=args.batch, loss_type='huber', device=device, num_epoch=args.epoch)
+                                     batch_size=args.batch, loss_type='huber', device=args.device, num_epoch=args.epoch)
 
 # Load or train the diffusion model.
 if args.loaddiff:
@@ -84,11 +77,14 @@ if args.draw:
     val_images, val_ODTs = shuffle(val_images, val_ODTs)
     val_num = args.numimage
     gen_steps = diffusion.p_sample_loop(denoiser, shape=(val_num, *(val_images.shape[1:])),
-                                        y=torch.from_numpy(val_ODTs[:val_num]).float().to(device),
+                                        y=torch.from_numpy(val_ODTs[:val_num]).float().to(args.device),
                                         display=True)
     gen_images = gen_steps[-1]
 
     num_channel = gen_images.shape[1]
+
+    if not os.exists(os.path.join(args.metadir, 'images')):
+        os.makedirs(os.path.join(args.metadir, 'images'))
     for i in tqdm(range(val_num), desc='Drawing generated images'):
         plt.figure(figsize=(num_channel / 2 * 5, 5))
         for c in range(num_channel):
@@ -99,7 +95,7 @@ if args.draw:
             plt.subplot(2, num_channel, c + 1 + num_channel)
             plt.title(f'Real channel {c + 1}')
             plt.imshow(val_images[i][c])
-        plt.savefig(os.path.join('data', 'images', f'{dataset.name}_%03d.png' % i), bbox_inches='tight')
+        plt.savefig(os.path.join(args.metadir, 'images', f'{dataset.name}_%03d.png' % i), bbox_inches='tight')
         plt.close()
 
 # Train ETA predictor.
@@ -120,6 +116,6 @@ if args.traineta:
         raise NotImplementedError('Undefined predictor "' + args.predictor + '"')
     eta_trainer = ETATrainer(diffusion=diffusion, predictor=predictor, dataset=dataset,
                              gen_images=diffusion_trainer.gen_images,
-                             lr=1e-3, batch_size=args.batch, num_epoch=args.epoch, device=device, early_stopping=args.stop,
+                             lr=1e-3, batch_size=args.batch, num_epoch=args.epoch, device=args.device, early_stopping=args.stop,
                              train_origin=args.trainorigin, val_origin=args.valorigin)
     eta_trainer.train()

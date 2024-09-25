@@ -4,9 +4,6 @@ from random import choices
 from collections import Counter
 from argparse import ArgumentParser
 
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
-
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
@@ -15,39 +12,31 @@ pd.options.mode.chained_assignment = None
 
 
 class TrajectoryDataset:
-    """
-    Dataset class for trajectories.
-    """
 
-    def __init__(self, name, split, partial=1.0, small=False, flat=False):
-        """
-        :param file_path:
-        """
+    def __init__(self, traj_path, meta_dir, split, partial=1.0, flat=False):
+        # Load a DataFrame containing the set of trajectories.
+        # This DataFrame should contain four columns: trip_id, lng, lat, time.
+        # `trip_id` indicates the ID of each trajectory,
+        # while `lng`, `lat`, and `time` are the spatiotemporal features of each trajectory.
+        self.dataframe = pd.read_hdf(traj_path, key='raw')
+        print(f"[Loaded dataset] {traj_path}, number of travels {self.dataframe['trip_id'].drop_duplicates().shape[0]}")
+
         self.split = split
-        self.name = name
         self.partial = partial
-        self.file_path = os.path.join('data', self.name)
         self.flat = flat
 
-        self.image_meta_path = os.path.join('/nfs/srv/data1/yanlin/DiffusionETA/meta', 
-                                            self.name + f'_S{self.split}_F{self.flat}') + '_image.npz'
-        self.traj_meta_path = os.path.join('/nfs/srv/data1/yanlin/DiffusionETA/meta', 
-                                           self.name + f'_S{self.split}') + '_traj.npz'
-
-        # A DataFrame containing the full dataset.
-        # This DataFrame should contain four columns: trip_id, lng, lat, time.
-        if small:
-            self.dataframe = pd.read_hdf(os.path.join('data', name) + '_small.h5', key='raw')
-        else:
-            file_path = '/nfs/srv/data1/yanlin/Dataset/DeepGTT/' + name + '.h5'
-            self.dataframe = pd.read_hdf(file_path, key='raw')
-            self.dataframe = self.dataframe[self.dataframe['trip_id'].isin(pd.read_hdf(file_path, key='valid'))]
-            print(f"[Loaded dataset] {file_path}, number of travels {self.dataframe['trip_id'].drop_duplicates().shape[0]}")
+        self.meta_dir = meta_dir
+        if not os.path.exists(meta_dir):
+            os.makedirs(meta_dir)
+        # Path for storing the preprocessed Pixelated Trajectory (PiT).
+        self.image_meta_path = os.path.join(meta_dir, f'S{self.split}_F{self.flat}_image.npz')
+        # Path for storing the preprocessed trajectory.
+        self.traj_meta_path = os.path.join(meta_dir, f'S{self.split}_traj.npz')
 
         trip_len_counter = Counter(self.dataframe['trip_id'])
-        self.max_len = max(trip_len_counter.values())
-        num_trips = len(trip_len_counter)
-        all_trips = list(trip_len_counter.keys())
+        self.max_len = max(trip_len_counter.values())  # Maximum length of trajectories
+        num_trips = len(trip_len_counter)  # Number of trajectories in the dataset
+        all_trips = list(trip_len_counter.keys())  # A list of trajectory IDs
 
         # Transform time into the time of the day.
         self.dataframe['daytime'] = (self.dataframe['time'] % (24 * 60 * 60))
@@ -62,12 +51,14 @@ class TrajectoryDataset:
             self.dataframe[col + '_norm'] = self.dataframe[col + '_norm'] * 2 - 1
         self.dataframe['daytime_norm'] = self.dataframe['daytime'] / 60 / 60 / 24 * 2 - 1
 
+        # Calculate the cell index of each trajectory point in the grid.
         x_index = np.around((self.dataframe['lng'] - self.col_minmax['lng_min']) /
                             ((self.col_minmax['lng_max'] - self.col_minmax['lng_min']) / (self.split - 1)))
         y_index = np.around((self.dataframe['lat'] - self.col_minmax['lat_min']) /
                             ((self.col_minmax['lat_max'] - self.col_minmax['lat_min']) / (self.split - 1)))
         self.dataframe['cell_index'] = y_index * self.split + x_index
 
+        # Split the dataset into training, validation, and testing sets by 8:1:1.
         train_val_split, val_test_split = int(num_trips * 0.8), int(num_trips * 0.9)
         self.split_df = [self.dataframe[self.dataframe['trip_id'].isin(select)]
                          for select in (all_trips[:train_val_split],
@@ -116,8 +107,8 @@ class TrajectoryDataset:
                     img = img.reshape(img.shape[0], self.split, self.split)  # (C, W, H)
                 images.append(img)
             
-            f_images = []
             if self.flat:
+                f_images = []
                 valid_cells = [image[0][image[0] > 0].sum() for image in images]
                 max_valid = int(max(valid_cells))
                 for image in tqdm(images, desc='Flatting images'):
@@ -125,7 +116,7 @@ class TrajectoryDataset:
                     f_image = f_image[image[0] > 0, :]  # (n_cell, C)
                     f_image = np.concatenate([f_image, np.ones((max_valid - f_image.shape[0], f_image.shape[1])) * -1], 0)  # (max_cell, C)
                     f_images.append(np.transpose(f_image))
-            images = f_images
+                images = f_images
 
             images, ODTs, arrive_times = np.stack(images, 0), np.array(ODTs), np.array(arrive_times)
 
@@ -134,14 +125,14 @@ class TrajectoryDataset:
 
         full_num_train = images.shape[0]
         partial_index = choices(range(full_num_train), k=math.floor(self.partial * full_num_train)) if df_index == 0 else list(range(full_num_train))
-        return (images[partial_index], ODTs[partial_index], arrive_times[partial_index])
+        return images[partial_index], ODTs[partial_index], arrive_times[partial_index]
 
     def dump_images(self):
         images = {}
         for i, label in enumerate(['train', 'val', 'test']):
-            images |= {f'{label}_image': self.images[i][0],
-                       f'{label}_odt': self.images[i][1],
-                       f'{label}_arr': self.images[i][2]}
+            images[f'{label}_image'] = self.images[i][0]
+            images[f'{label}_odt'] = self.images[i][1]
+            images[f'{label}_arr'] = self.images[i][2]
         np.savez(self.image_meta_path, **images)
         print(f'[Dumped meta] to {self.image_meta_path}')
 
@@ -193,13 +184,13 @@ class TrajectoryDataset:
         return (trajs[partial_index], ODTs[partial_index], arrive_times[partial_index])
 
     def dump_trajs(self):
-        meta = {}
+        trajs = {}
         for i, label in enumerate(['train', 'val', 'test']):
-            meta |= {f'{label}_traj': self.trajs[i][0],
-                     f'{label}_odt': self.trajs[i][1],
-                     f'{label}_arr': self.trajs[i][2]}
-        np.savez(self.traj_meta_path, **meta)
-        print(f'[Dumped meta] to {self.traj_meta_path}')
+            trajs[f'{label}_traj'] = self.trajs[i][0]
+            trajs[f'{label}_odt'] = self.trajs[i][1]
+            trajs[f'{label}_arr'] = self.trajs[i][2]
+        np.savez(self.traj_meta_path, **trajs)
+        print(f'[Dumped trajs] to {self.traj_meta_path}')
 
     def load_trajs(self):
         if os.path.exists(self.traj_meta_path):
@@ -217,13 +208,14 @@ class TrajectoryDataset:
     
 if __name__ == '__main__':
     parser = ArgumentParser()
-    parser.add_argument('-n', '--name', help='the name of the dataset', type=str, required=True)
+    parser.add_argument('--trajpath', help='the path to the set of trajectories', type=str, required=True)
+    parser.add_argument('--metadir', help='the directory to cache preprocessed meta data', type=str, required=True)
     parser.add_argument('-s', '--split', help='the number of x and y split', type=int, default=20)
     parser.add_argument('-t', '--type', help='the type of meta information', type=str, default='image')
     parser.add_argument('--flat', action='store_true')
     args = parser.parse_args()
 
-    dataset = TrajectoryDataset(args.name, split=args.split, flat=args.flat)
+    dataset = TrajectoryDataset(args.trajpath, args.metadir, split=args.split, flat=args.flat)
 
     if args.type == 'image':
         for i in range(3):

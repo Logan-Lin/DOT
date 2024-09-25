@@ -27,7 +27,7 @@ def mean_absolute_percentage_error(y_true, y_pred):
     return mape
 
 
-def cal_regression_metric(label, pres, p=True, save=False, save_key='undefined'):
+def cal_regression_metric(label, pres, p=True, save=False, save_path='undefined'):
     rmse = math.sqrt(mean_squared_error(label, pres))
     mae = mean_absolute_error(label, pres)
     mape = mean_absolute_percentage_error(label, pres)
@@ -37,9 +37,9 @@ def cal_regression_metric(label, pres, p=True, save=False, save_key='undefined')
 
     if save:
         s = pd.Series([rmse, mae, mape], index=['rmse', 'mae', 'mape'])
-        s.to_hdf(os.path.join('/nfs/srv/data1/yanlin/DiffusionETA/result', f'{save_key}.h5'),
+        s.to_hdf(f'{save_path}.h5',
                  key=f't{datetime.now().strftime("%Y_%m_%d_%H_%M_%S")}', format='table')
-        np.savez(os.path.join('/nfs/srv/data1/yanlin/DiffusionETA/prediction', f'{save_key}.npz'),
+        np.savez(f'{save_path}.npz',
                  pre=pres, label=label)
         print('[Saved prediction]')
 
@@ -71,13 +71,13 @@ class DiffusionTrainer:
         self.num_epoch = num_epoch
         self.device = device
 
-        self.save_model_path = os.path.join('data', 'model',
-                                            f'{self.dataset.name}_denoiser_{self.denoiser.name}_'
+        self.save_model_path = os.path.join(dataset.meta_dir,
+                                            f'denoiser_{self.denoiser.name}_'
                                             f'T{self.diffusion.T}_'
                                             f'S{self.dataset.split}.model')
 
-        gen_path = os.path.join('/nfs/srv/data1/yanlin/DiffusionETA/generation',
-                                f'{self.dataset.name}_images_{self.denoiser.name}_'
+        gen_path = os.path.join(dataset.meta_dir,
+                                f'images_{self.denoiser.name}_'
                                 f'T{self.diffusion.T}_'
                                 f'S{self.dataset.split}')
         self.gen_set_path = gen_path + '.npz'
@@ -117,8 +117,8 @@ class DiffusionTrainer:
         real_img = real_img.reshape(real_img.shape[0], -1)
         generation = generation.reshape(generation.shape[0], -1)
         cal_regression_metric(real_img, generation, save=True,
-                              save_key=f'denoiser_{self.denoiser.name}_C{self.denoiser.condition}_T{self.diffusion.T}_'
-                                       f'{self.dataset.name}_S{self.dataset.split}_P{self.dataset.partial}')
+                              save_path=os.path.join(self.dataset.meta_dir, f'denoiser_{self.denoiser.name}_C{self.denoiser.condition}_T{self.diffusion.T}_'
+                                        f'S{self.dataset.split}_P{self.dataset.partial}'))
 
     def train(self):
         train_meta = self.dataset.get_images(0)
@@ -197,8 +197,8 @@ class ETATrainer:
         self.val_origin = val_origin
         self.early_stopping = early_stopping
 
-        self.save_model_path = os.path.join('data', 'model',
-                                            f'{self.dataset.name}_predictor_{self.predictor.name}_'
+        self.save_model_path = os.path.join(dataset.meta_dir,
+                                            f'predictor_{self.predictor.name}_'
                                             f'L{self.predictor.num_layers}_D{self.predictor.d_model}_'
                                             f'st{self.predictor.use_st}_grid{self.predictor.use_grid}_'
                                             f'T{self.diffusion.T}_'
@@ -244,9 +244,9 @@ class ETATrainer:
 
         pres = np.concatenate(pres)
         return cal_regression_metric(label, pres, save=save,
-                                     save_key=f'{self.predictor.name}_L{self.predictor.num_layers}_D{self.predictor.d_model}_'
-                                              f'st{self.predictor.use_st}_grid{self.predictor.use_grid}_'
-                                              f'{self.dataset.name}_S{self.dataset.split}_P{self.dataset.partial}')
+                                     save_path=os.path.join(self.dataset.meta_dir, f'{self.predictor.name}_L{self.predictor.num_layers}_D{self.predictor.d_model}_'
+                                     f'st{self.predictor.use_st}_grid{self.predictor.use_grid}_'
+                                     f'S{self.dataset.split}_P{self.dataset.partial}'))
 
     def train(self):
         train_gen = self.gen_images[0]
